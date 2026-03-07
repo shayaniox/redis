@@ -1,22 +1,58 @@
 #include "command.h"
 #include "estring.h"
-#include "log.h"
+#include "hashtable.h"
+#include "serialize.h"
+#include <stddef.h>
+#include <string.h>
 
-enum res_code get(string_t key, string_t value)
+enum res_code get(struct HashTable *ht, string_t key, string_t resp)
 {
-    info("get: [%s]", key->data);
-    str_set(value, "value", 5);
+    struct HashNode *temp = node_create(key->data, NULL);
+    struct HashNode *node = ht_lookup(ht, temp);
+    node_free(temp);
+    if (!node) {
+        char *msg = "your fucking key not found, you idiot! [command: get]";
+        werr(resp, ERR_NOTFOUND, msg, strlen(msg));
+        return RES_NX;
+    }
+    wstr(resp, node->value);
+
     return RES_OK;
 }
 
-enum res_code set(string_t key, string_t value)
+enum res_code set(struct HashTable *ht, string_t key, string_t value, string_t resp)
 {
-    info("set: [%s] to [%s]", key->data, value->data);
-    return RES_ERR;
+    struct HashNode *node = node_create(key->data, value->data);
+    ht_insert(ht, node);
+    wnil(resp);
+
+    return RES_OK;
 }
 
-enum res_code del(string_t key)
+enum res_code del(struct HashTable *ht, string_t key, string_t resp)
 {
-    info("del: [%s]", key->data);
-    return RES_NX;
+    struct HashNode *temp = node_create(key->data, NULL);
+    struct HashNode *node = ht_pop(ht, temp);
+    if (!node) {
+        char *msg = "your fucking key not found, you idiot! [command: del]";
+        werr(resp, ERR_NOTFOUND, msg, strlen(msg));
+        return RES_NX;
+    }
+    node_free(temp);
+    node_free(node);
+    wnil(resp);
+
+    return RES_OK;
+}
+
+enum res_code keys(struct HashTable *ht, string_t resp)
+{
+    struct slist *keys = ht_scan(ht);
+    warr(resp, keys->len);
+    for (size_t i = 0; i < keys->len; i++) {
+        wstr(resp, keys->data[i]);
+    }
+    slist_free(keys);
+
+    return RES_OK;
 }

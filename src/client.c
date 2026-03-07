@@ -1,8 +1,11 @@
 #include "client.h"
 #include "check.h"
 #include "log.h"
+#include "serialize.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -68,6 +71,7 @@ int client_run(int argc, char *argv[])
     ssize_t numread;
     int buflen = 1024;
     char buf[buflen];
+    uint8_t type;
 
     while (1) {
         numread = recv(sfd, buf, buflen, 0);
@@ -82,7 +86,60 @@ int client_run(int argc, char *argv[])
         info("Numread: %ld", numread);
         info("Command len: %d", *(int *)buf - 4);
         info("Result code: %d", *(int *)&buf[4]);
-        info("Received: {%.*s}", (int)numread - (4 + 4), &buf[4 + 4]);
+
+        type = *(uint8_t *)&buf[4 + 4];
+        uint32_t msglen;
+        char *msg;
+        switch (type) {
+        case SERNIL:
+            info("Type: nil");
+            break;
+        case SERERR:
+            info("Type: error");
+            int errcode = *(int *)&buf[4 + 4 + 1];
+            msglen = *(int *)&buf[4 + 4 + 1 + 4];
+            msg = malloc(msglen + 1);
+            memcpy(msg, &buf[4 + 4 + 1 + 4 + 4], msglen);
+            info("Err Code:[%d]", errcode);
+            info("Err Message:[%.*s]", msglen, msg);
+            free(msg);
+            break;
+        case SERINT:
+            info("Type: int");
+            int value = *(int *)&buf[4 + 4 + 1];
+            info("Value: [%d]", value);
+            break;
+        case SERSTR:
+            info("Type: string");
+            msglen = *(int *)&buf[4 + 4 + 1];
+            msg = malloc(msglen + 1);
+            memcpy(msg, &buf[4 + 4 + 1 + 4], msglen);
+            info("String: [%.*s]", msglen, msg);
+            free(msg);
+            break;
+        case SERARR:
+            info("Type: array");
+            uint32_t arrlen = *(int *)&buf[4 + 4 + 1];
+            info("Array Length: [%d]", arrlen);
+            size_t pos = 4 + 4 + 1 + 4;
+            uint8_t innertype = 0;
+            for (uint32_t i = 0; i < arrlen; i++) {
+                innertype = *(uint8_t *)&buf[pos];
+                info(">  Inner Type %d: [%d]", i, innertype);
+                pos += sizeof(uint8_t);
+                msglen = *(uint32_t *)&buf[pos];
+                pos += sizeof(uint32_t);
+                msg = malloc(msglen + 1);
+                memcpy(msg, &buf[pos], msglen);
+                info(">  String: [%.*s]", msglen, msg);
+                free(msg);
+                pos += msglen;
+            }
+            break;
+        default:
+            info("Type: [%d]", *(uint8_t *)&buf[4 + 4]);
+        }
+        /* info("Received: {%.*s}", (int)numread - (4 + 4), &buf[4 + 4]); */
     }
 
     close(sfd);

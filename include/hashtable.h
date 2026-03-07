@@ -2,6 +2,7 @@
 #define _HASHTABLE_H
 
 #include "estring.h"
+#include "slist.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -30,8 +31,9 @@ struct HashTable {
 void ht_insert(struct HashTable *ht, struct HashNode *node);
 struct HashNode *ht_pop(struct HashTable *ht, struct HashNode *node);
 struct HashNode *ht_lookup(struct HashTable *ht, struct HashNode *node);
-void ht_print(struct HashTable *ht, struct HashNode *node);
+void ht_print(struct HashTable *ht);
 void ht_clear(struct HashTable *ht);
+struct slist *ht_scan(struct HashTable *ht);
 
 #define container_of(ptr, type, member) ({          \
     typeof(((type *)0)->member) *__mptr = (ptr);    \

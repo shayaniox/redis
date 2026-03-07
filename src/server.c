@@ -5,6 +5,7 @@
 #include "hashtable.h"
 #include "log.h"
 #include "plist.h"
+#include "serialize.h"
 #include "slist.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -12,6 +13,7 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,7 +51,6 @@ int sendresp(struct conn *c)
     ssize_t nwrite;
     while (c->wdata_sent < c->wsize) {
         remain = c->wsize - c->wdata_sent;
-        /* info("remain: %ld", remain); */
         nwrite = send(c->fd, &c->wdata[c->wdata_sent], remain, 0);
         if (nwrite == -1 && errno == EINTR) {
             continue;
@@ -74,11 +75,38 @@ int sendresp(struct conn *c)
     return 0;
 }
 
+void run(struct slist *cmd, int *rescode, string_t resp)
+{
+    if (memcmp(cmd->data[0]->data, "get", 3) == 0 && cmd->len == 2) {
+        *rescode = get(&db, cmd->data[1], resp);
+    }
+    else if (memcmp(cmd->data[0]->data, "set", 3) == 0 && cmd->len == 3) {
+        *rescode = set(&db, cmd->data[1], cmd->data[2], resp);
+    }
+    else if (memcmp(cmd->data[0]->data, "del", 3) == 0 && cmd->len == 2) {
+        *rescode = del(&db, cmd->data[1], resp);
+    }
+    else if (memcmp(cmd->data[0]->data, "keys", 4) == 0 && cmd->len == 1) {
+        *rescode = keys(&db, resp);
+    }
+    else {
+        char *msg = "invalid command dumbass";
+        werr(resp, ERR_UNKONWN, msg, strlen(msg));
+        return;
+    }
+
+    // TODO: writing error message must be handled by the commands
+    if (*rescode == RES_ERR) {
+        char *msg = "failed to run the command";
+        werr(resp, RES_ERR, msg, strlen(msg));
+    }
+}
+
 // rdata consists of: [4 bytes of nargs] [4 bytes of str n length] [str n]
 // wdata only contains the response data while [4 bytes of response len] and
 // [4 bytes of response code] is set by the caller.
 // So the `wlen` shows the len of response regardless the len of response code
-int do_request(char *rdata, int rlen, int *rescode, char *wdata, int *wlen)
+int do_request(char *rdata, int rlen, int *rescode, string_t resp)
 {
     int n;
     memcpy(&n, rdata, NSTR_SIZE);
@@ -109,72 +137,7 @@ int do_request(char *rdata, int rlen, int *rescode, char *wdata, int *wlen)
         goto ERR;
     }
 
-    if (memcmp(cmd->data[0]->data, "get", 3) == 0) {
-        if (cmd->len != 2) {
-            *rescode = RES_ERR;
-            const char *errmsg = "invalid number of args for command 'get'";
-            memcpy(wdata, errmsg, strlen(errmsg));
-            *wlen = strlen(errmsg);
-
-            goto CORRECT;
-        }
-        string_t value = str_init();
-        *rescode = get(cmd->data[1], value);
-        memcpy(wdata, value->data, value->len);
-        *wlen = value->len;
-        str_free(value);
-    }
-    else if (memcmp(cmd->data[0]->data, "set", 3) == 0) {
-        if (cmd->len != 3) {
-            *rescode = RES_ERR;
-            const char *errmsg = "invalid number of args for command 'set'";
-            memcpy(wdata, errmsg, strlen(errmsg));
-            *wlen = strlen(errmsg);
-
-            goto CORRECT;
-        }
-        *rescode = set(cmd->data[1], cmd->data[2]);
-    }
-    else if (memcmp(cmd->data[0]->data, "del", 3) == 0) {
-        if (cmd->len != 2) {
-            *rescode = RES_ERR;
-            const char *errmsg = "invalid number of args for command 'del'";
-            memcpy(wdata, errmsg, strlen(errmsg));
-            *wlen = strlen(errmsg);
-
-            goto CORRECT;
-        }
-        *rescode = del(cmd->data[1]);
-    }
-    else {
-        int n = sprintf(wdata, "invalid command: '%s'", cmd->data[0]->data);
-        *wlen = n;
-        goto CORRECT;
-    }
-
-    // TODO: writing error message must be handled by the commands
-    switch (*rescode) {
-    case RES_ERR: {
-        /* const char *errmsg = "error on command"; */
-        /* memcpy(wdata, errmsg, strlen(errmsg)); */
-        /* *wlen = strlen(errmsg); */
-        int n = sprintf(wdata, "failed to do '%.*s'", (int)cmd->data[0]->len, cmd->data[0]->data);
-        /* *wlen = 2; */
-        *wlen = n;
-        break;
-    }
-    case RES_NX: {
-        /* const char *errmsg = "data does not exist"; */
-        /* memcpy(wdata, errmsg, strlen(errmsg)); */
-        /* *wlen = strlen(errmsg); */
-        int n = sprintf(wdata, "data not exist for '%.*s'", (int)cmd->data[0]->len, cmd->data[0]->data);
-        /* *wlen = 2; */
-        *wlen = n;
-        break;
-    }
-    }
-
-CORRECT:
+    run(cmd, rescode, resp);
     slist_free(cmd);
     return 0;
 
@@ -205,18 +168,25 @@ int extractreq(struct conn *c)
 
         int rescode;
         int wlen = 0;
+        string_t resp = str_init();
 
         // Request is ready to parse
-        int err = do_request(&c->rdata[LEN_SIZE], cmdlen, &rescode, &c->wdata[LEN_SIZE + RES_CODE_SIZE], &wlen);
+        int err = do_request(&c->rdata[LEN_SIZE], cmdlen, &rescode, resp);
         if (err) {
             c->s = STATE_END;
 
             return -1;
         }
+        if (resp->len + LEN_SIZE + RES_CODE_SIZE > MAX_REQ_LEN) {
+            char *msg = "response too large";
+            werr(resp, ERR_TOOBIG, msg, strlen(msg));
+        }
+        wlen += resp->len;
         wlen += RES_CODE_SIZE; // rescode
 
         memcpy(c->wdata, &wlen, LEN_SIZE);
         memcpy(&c->wdata[LEN_SIZE], &rescode, RES_CODE_SIZE);
+        memcpy(&c->wdata[LEN_SIZE + RES_CODE_SIZE], resp->data, resp->len);
         c->wsize = LEN_SIZE + wlen;
 
         int remaining = c->rsize - (LEN_SIZE + cmdlen);
@@ -225,6 +195,9 @@ int extractreq(struct conn *c)
         }
         c->rsize = remaining;
         c->s = STATE_RES;
+
+        str_free(resp);
+
         if (sendresp(c) == -1) {
             return -1;
         }
@@ -344,7 +317,7 @@ int server_run()
 
     info("Serving TCP server on 127.0.0.1:8081");
 
-    char bufin[1024];
+    char bufin[1024] = {0};
     ssize_t nreadin;
     struct pollfd pt;
 
@@ -422,6 +395,8 @@ int server_run()
 
     cl_free(cl);
     pl_free(pl);
+
+    ht_clear(&db);
 
     return EXIT_SUCCESS;
 }

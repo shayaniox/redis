@@ -15,5 +15,6 @@ int str_append(string_t str, char *chars, size_t l);
 int str_clear(string_t str);
 int str_free(string_t str);
 int str_set(string_t str, char *chars, size_t l);
+string_t str_dup(string_t str);
 
 #endif

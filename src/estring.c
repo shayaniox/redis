@@ -122,3 +122,16 @@ int str_set(string_t str, char *chars, size_t l)
 
     return 0;
 }
+
+string_t str_dup(string_t str)
+{
+    if (!str) return NULL;
+
+    string_t dup = malloc(sizeof(struct string));
+    dup->len = str->len;
+    dup->cap = str->cap;
+    dup->data = malloc(str->cap);
+    memcpy(dup->data, str->data, str->len);
+
+    return dup;
+}

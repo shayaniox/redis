@@ -1,6 +1,5 @@
 #include "slist.h"
 #include "estring.h"
-#include "log.h"
 #include "util.h"
 #include <stddef.h>
 #include <stdio.h>
@@ -51,8 +50,8 @@ int slist_free(struct slist *list)
 
 void pslist(struct slist *list)
 {
-    printf("[");
+    printf("[\n");
     for (size_t i = 0; i < list->len; i++)
-        printf("\t%s\n", list->data[i]->data);
+        printf("\"%s\"\n", list->data[i]->data);
     printf("]");
 }

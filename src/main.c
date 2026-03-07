@@ -1,6 +1,5 @@
 #include "client.h"
 #include "hashtable.h"
-#include "log.h"
 #include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,19 +24,10 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(argv[1], "server") == 0) {
-        if (server_run() == -1) {
-            return EXIT_FAILURE;
-        }
+        return server_run();
     }
-    else if (strcmp(argv[1], "client") == 0) {
-        if (argc < 3) {
-            print_usage(argv[0]);
-            return EXIT_FAILURE;
-        }
-
-        if (client_run(argc - 2, &argv[2]) == -1) {
-            return EXIT_FAILURE;
-        }
+    else if (strcmp(argv[1], "client") == 0 && argc >= 3) {
+        return client_run(argc - 2, &argv[2]);
     }
     else {
         print_usage(argv[0]);

@@ -2,8 +2,10 @@
 #include "estring.h"
 #include "hashfunc.h"
 #include "log.h"
+#include "slist.h"
 #include <assert.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,10 +14,12 @@ const int k_max_load_factor = 8;
 
 struct HashNode *node_create(const char *key, const char *val)
 {
-    struct HashNode *node = malloc(sizeof(struct HashNode));
+    assert(key != NULL);
+    struct HashNode *node = calloc(1, sizeof(struct HashNode));
     node->hcode = djb2(key);
     node->key = str_from(key);
-    node->value = str_from(val);
+    if (val)
+        node->value = str_from(val);
     return node;
 }
 
@@ -49,6 +53,7 @@ static void h_insert(struct HashMap *hm, struct HashNode *node)
 static struct HashNode **h_lookup(struct HashMap *hm, struct HashNode *node)
 {
     if (hm->buckets == NULL) {
+        warn("hm buckest is null");
         return NULL;
     }
     size_t pos = node->hcode & hm->mask;
@@ -87,6 +92,28 @@ void h_clear(struct HashMap *hm)
     }
 }
 
+struct slist *h_scan(struct HashMap *h)
+{
+    struct slist *keys = new_slist(NULL, 0);
+    if (!h->buckets) {
+        return keys;
+    }
+
+    size_t pos = 0;
+    struct HashNode *node = h->buckets[pos];
+    while (pos < (h->mask + 1)) {
+        if (!node) {
+            pos++;
+            node = pos < (h->mask + 1) ? h->buckets[pos] : NULL;
+            continue;
+        }
+        slist_append(keys, str_dup(node->key));
+        node = node->next;
+    }
+
+    return keys;
+}
+
 static void ht_resize_init(struct HashTable *ht)
 {
     assert(ht->temp.buckets == NULL);
@@ -116,10 +143,20 @@ static void ht_resize(struct HashTable *ht)
 void ht_insert(struct HashTable *ht, struct HashNode *node)
 {
     if (!ht->main.buckets) {
-        h_init(&ht->main, 32);
+        h_init(&ht->main, 4);
     }
 
-    h_insert(&ht->main, node);
+    struct HashNode **from = h_lookup(&ht->main, node);
+    if (from) {
+        struct HashNode *oldnode = *from;
+        *from = node;
+        node->next = oldnode->next;
+        node_free(oldnode);
+    }
+    else {
+        h_insert(&ht->main, node);
+    }
+
     if (ht->temp.buckets == NULL) {
         int load_factor = ht->main.size / (ht->main.mask + 1);
         if (load_factor >= k_max_load_factor) {
@@ -129,10 +166,7 @@ void ht_insert(struct HashTable *ht, struct HashNode *node)
     else {
         struct HashNode **from = h_lookup(&ht->temp, node);
         if (from) {
-            struct HashNode *node = *from;
-            free(node->key);
-            free(node->value);
-            free(node);
+            node_free(*from);
         }
     }
     ht_resize(ht);
@@ -162,16 +196,27 @@ struct HashNode *ht_lookup(struct HashTable *ht, struct HashNode *node)
 
     struct HashNode **result = h_lookup(&ht->main, node);
     if (!result) {
+        error("looking for node in temp");
         result = h_lookup(&ht->temp, node);
     }
 
     return result ? *result : NULL;
 }
 
-void ht_print(struct HashTable *ht, struct HashNode *node)
+void ht_print(struct HashTable *ht)
 {
-    (void)ht;
-    (void)node;
+    size_t pos = 0;
+    struct HashNode *node = ht->main.buckets[pos];
+    while (pos < (ht->main.mask + 1)) {
+        if (!node) {
+            pos++;
+            node = pos < (ht->main.mask + 1) ? ht->main.buckets[pos] : NULL;
+            printf("-----------------------------\n");
+            continue;
+        }
+        printf("[%s] -> [%s]\n", node->key->data, node->value->data);
+        node = node->next;
+    }
 }
 
 void ht_clear(struct HashTable *ht)
@@ -180,6 +225,20 @@ void ht_clear(struct HashTable *ht)
         h_clear(&ht->temp);
         free(ht->temp.buckets);
     }
-    h_clear(&ht->main);
-    free(ht->main.buckets);
+    if (ht->main.buckets) {
+        h_clear(&ht->main);
+        free(ht->main.buckets);
+    }
+}
+
+struct slist *ht_scan(struct HashTable *ht)
+{
+    struct slist *keys = h_scan(&ht->main);
+    if (ht->temp.buckets) {
+        struct slist *tempkeys = h_scan(&ht->main);
+        for (size_t i = 0; i < tempkeys->len; i++)
+            slist_append(keys, str_dup(tempkeys->data[i]));
+    }
+
+    return keys;
 }
