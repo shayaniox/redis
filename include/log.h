@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <string.h>
 
 #define var(T, V) printf("\x1b[38;5;87m[VAR]\x1b[0m \x1b[1m" #V " :: " T "\x1b[0m\n", V)
 #define warn(M, ...) printf("\x1b[33m[WARN]\x1b[0m " M "\n", ##__VA_ARGS__)

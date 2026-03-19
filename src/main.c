@@ -1,3 +1,4 @@
+#include "avl.h"
 #include "client.h"
 #include "hashtable.h"
 #include "server.h"
@@ -28,6 +29,22 @@ int main(int argc, char *argv[])
     }
     else if (strcmp(argv[1], "client") == 0 && argc >= 3) {
         return client_run(argc - 2, &argv[2]);
+    }
+    else if (strcmp((argv[1]), "avl") == 0) {
+        __auto_type tree = (AvlTree){};
+
+        AvlNode **nodes = calloc(7, sizeof(AvlNode *));
+        int randnums[7] = {2, 22, 49, 15, 99, 27, 40}; // , 95, 35, 9, 24, 5, 66, 71, 32, 80, 97, 63, 81, 59};
+        for (int i = 0; i < 7; i++) {
+            nodes[i] = avlnew(randnums[i]);
+            avlins(&tree, nodes[i]);
+        }
+        tree.root = avldel(tree.root->left);
+
+        avlverify(tree.root);
+        avlprint(&tree);
+        avlfree(tree.root);
+        free(nodes);
     }
     else {
         print_usage(argv[0]);

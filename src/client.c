@@ -60,7 +60,6 @@ int client_run(int argc, char *argv[])
         pos += 4 + len;
     }
 
-    // cmdlen = 0
     *(int *)&req[4 + totallen] = 0;
 
     result = send(sfd, req, 4 + totallen + 4, 0);
